@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hacker News Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .comment {
+            border-left: 2px solid #007bff;
+            padding-left: 10px;
+            margin-top: 10px;
+        }
+        .live-update {
+            background-color: #ffffd0;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #e6e600;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hacker News Dashboard</h1>
+        <div id="liveUpdate" class="live-update" style="display: none;"></div>
+        <div>
+            <button onclick="loadStories('top')">Top Stories</button>
+            <button onclick="loadStories('new')">New Stories</button>
+            <button onclick="loadStories('best')">Best Stories</button>
+            <button onclick="loadStories('ask')">Ask HN</button>
+            <button onclick="loadStories('show')">Show HN</button>
+            <button onclick="loadStories('job')">Jobs</button>
+        </div>
+        <div id="stories" class="tab-content active"></div>
+        <button id="loadMore">Load More</button>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'https://hacker-news.firebaseio.com/v0';
+        let currentStoryIds = [];
+        let currentIndex = 0;
+        let currentTab = 'top';
+
+        async function fetchItem(id) {
+            const response = await fetch(`${API_BASE_URL}/item/${id}.json`);
+            return response.json();
+        }
+
+        async function fetchStories(type) {
+            const response = await fetch(`${API_BASE_URL}/${type}stories.json`);
+            return response.json();
+        }
+
+        function createItemElement(item) {
+            const itemElement = document.createElement('div');
+            itemElement.className = 'item';
+            itemElement.innerHTML = `
+                <h2>${item.title || item.text || 'No Title'}</h2>
+                <p>By: ${item.by || 'Unknown'}</p>
+                <p>Score: ${item.score || 'N/A'}</p>
+                ${item.url ? `<a href="${item.url}" target="_blank">Read more</a>` : ''}
+                ${item.kids ? `<button onclick="toggleComments(${item.id})">Show Comments (${item.descendants || 0})</button>` : ''}
+                <div id="comments-${item.id}" style="display: none;"></div>
+            `;
+            return itemElement;
+        }
+
+        async function toggleComments(itemId) {
+            const commentsContainer = document.getElementById(`comments-${itemId}`);
+            if (commentsContainer.style.display === 'none') {
+                commentsContainer.style.display = 'block';
+                const item = await fetchItem(itemId);
+                if (item.kids && item.kids.length > 0) {
+                    const comments = await Promise.all(item.kids.slice(0, 3).map(fetchItem));
+                    comments.forEach(comment => {
+                        const commentElement = document.createElement('div');
+                        commentElement.className = 'comment';
+                        commentElement.innerHTML = `
+                            <p>${comment.text || 'No text'}</p>
+                            <p>By: ${comment.by || 'Unknown'}</p>
+                        `;
+                        commentsContainer.appendChild(commentElement);
+                    });
+                }
+            } else {
+                commentsContainer.style.display = 'none';
+            }
+        }
+
+        async function loadStories(type) {
+            currentTab = type;
+            currentIndex = 0;
+            currentStoryIds = await fetchStories(type);
+            const storiesContainer = document.getElementById('stories');
+            storiesContainer.innerHTML = '';
+            await loadMoreStories();
+        }
+
+        async function loadMoreStories() {
+            const storiesContainer = document.getElementById('stories');
+            const endIndex = Math.min(currentIndex + 10, currentStoryIds.length);
+            const newStories = await Promise.all(
+                currentStoryIds.slice(currentIndex, endIndex).map(fetchItem)
+            );
+            newStories.forEach(story => {
+                storiesContainer.appendChild(createItemElement(story));
+            });
+            currentIndex = endIndex;
+            document.getElementById('loadMore').style.display = currentIndex >= currentStoryIds.length ? 'none' : 'block';
+        }
+
+        async function checkForUpdates() {
+            const response = await fetch(`${API_BASE_URL}/updates.json`);
+            const updates = await response.json();
+            if (updates.items && updates.items.length > 0) {
+                const latestItem = await fetchItem(updates.items[0]);
+                const liveUpdateElement = document.getElementById('liveUpdate');
+                liveUpdateElement.innerHTML = `
+                    <h3>New Update</h3>
+                    <p>${latestItem.title || latestItem.text || 'New item'}</p>
+                    <p>By: ${latestItem.by || 'Unknown'}</p>
+                `;
+                liveUpdateElement.style.display = 'block';
+            }
+        }
+
+        document.getElementById('loadMore').addEventListener('click', loadMoreStories);
+
+        // Initial load
+        loadStories('top');
+
+        // Live updates
+        setInterval(checkForUpdates, 5000);
+    </script>
+</body>
+</html>
